@@ -1,0 +1,61 @@
+{
+  "name": "mustdo-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for MustDo (the iOS To-Do alarm that keeps ringing until you do it). Lets Claude and other MCP clients read and write your To-Dos in your own iCloud via CloudKit Web Services.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "cloudkit",
+    "icloud",
+    "ios",
+    "alarm",
+    "to-do",
+    "todo",
+    "reminder",
+    "claude"
+  ],
+  "license": "MIT",
+  "author": "Lightning LLC",
+  "homepage": "https://ltng.jp/mustdo/mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lightning-llc-jpn/mustdo-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lightning-llc-jpn/mustdo-mcp/issues"
+  },
+  "type": "module",
+  "bin": {
+    "mustdo-mcp": "dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/core.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.ja.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
