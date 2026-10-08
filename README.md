@@ -7,7 +7,7 @@
 It lets Claude (Claude Code, Claude Desktop, claude.ai, the Claude iPhone app) and any other
 [Model Context Protocol](https://modelcontextprotocol.io/) client read and write your MustDo To-Dos.
 
-- **Your data stays in your iCloud.** MustDo has no backend of its own. To-Dos live in the
+- **Your data stays in your iCloud.** MustDo has no database of its own for To-Dos. They live in the
   CloudKit *private* database of your Apple ID (container `iCloud.jp.lightning.mustdo`, zone `MustDo`).
   This server talks to Apple's [CloudKit Web Services](https://developer.apple.com/library/archive/documentation/DataManagement/Conceptual/CloudKitWebServicesReference/)
   and reads/writes the same records as the iPhone app.
@@ -17,10 +17,10 @@ It lets Claude (Claude Code, Claude Desktop, claude.ai, the Claude iPhone app) a
 
 ## Two ways to use it
 
-| | A. Hosted relay (recommended) | B. Run this repository locally |
+| | A. Hosted relay (recommended) | B. Run this repository locally (developers) |
 |---|---|---|
 | Works from | claude.ai, Claude iPhone app, any client that supports remote MCP + OAuth | Claude Code / Claude Desktop on a Mac (stdio) |
-| Setup | Add a custom connector, sign in with your Apple ID | Node 24, build, configure, sign in |
+| Setup | Add a custom connector, sign in with your Apple ID | Node 24, build, configure, sign in. Needs a CloudKit API Token that is **not publicly distributed** (see below) |
 | What Lightning LLC stores | Your **CloudKit sign-in token only**, encrypted with AWS KMS (see below) | Nothing |
 
 ### A. Hosted relay — `https://ltng.jp/api/mustdo/mcp`
@@ -48,7 +48,7 @@ Requirements:
 
 - macOS with **Node.js 24 or newer**
 - The MustDo app installed and synced to iCloud at least once (the app creates the zone and the `Account` record)
-- A **CloudKit API Token** for the MustDo container — see the next section
+- A **CloudKit API Token** for the MustDo container. It is **not currently distributed to the public** — see "About the CloudKit API Token" below. Without it, use the hosted relay (A)
 
 ```bash
 git clone https://github.com/lightning-llc-jpn/mustdo-mcp mustdo-mcp
@@ -86,13 +86,15 @@ CloudKit Web Services needs two tokens on every request:
 | Token | What it is | Who has it |
 |---|---|---|
 | `ckAPIToken` | Identifies the **container** (`iCloud.jp.lightning.mustdo`). Created in CloudKit Dashboard by the container owner. Apple designs it for use "from a website or an embedded web view", i.e. it is a client-side token with a fixed Sign-in Callback URL. | Lightning LLC (the container belongs to the MustDo developer team). **You cannot create one yourself** — CloudKit Dashboard only lets a team create tokens for its own containers. |
-| `ckWebAuthToken` | Your personal CloudKit session, issued by Apple when you sign in with your Apple ID. **This is the credential that actually grants access to your private database.** | Only you. Stored in `~/.mustdo/auth.json`; never leaves your Mac except to Apple. |
+| `ckWebAuthToken` | Your personal CloudKit session, issued by Apple when you sign in with your Apple ID. **This is the credential that actually grants access to your private database.** | Only you. Stored in `~/.mustdo/auth.json`. With the production token, Apple returns it through a redirect on `ltng.jp` during sign-in (see below; nothing is stored or logged there). After that it is sent only to Apple. |
 
-Because the API Token is container-wide and cannot be created by end users, Lightning LLC provides the
-value for local use. Use the value shown on <https://ltng.jp/mustdo/mcp> as `MUSTDO_CK_API_TOKEN`
-(the token for the *production* environment has its Sign-in Callback set to
+The API Token is container-wide and cannot be created by end users. **Lightning LLC does not currently
+distribute it publicly, so running this server locally is not offered to general users — use the hosted relay (A).**
+The code is published so that you can read exactly what the MCP server does with your data.
+
+For reference, the token for the *production* environment has its Sign-in Callback set to
 `https://ltng.jp/api/mustdo/oauth/local-callback`, which simply redirects back to `http://localhost:51234/callback`
-without storing anything). If the page does not show a token, local use is not currently offered — use the hosted relay.
+without storing or logging anything.
 
 #### Configuration
 
