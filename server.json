@@ -1,0 +1,12 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "jp.ltng/mustdo-mcp",
+  "title": "MustDo",
+  "description": "Read and write your MustDo (iOS alarm To-Do) tasks in your own iCloud via CloudKit.",
+  "version": "0.1.0",
+  "websiteUrl": "https://ltng.jp/mustdo/mcp",
+  "repository": { "url": "https://github.com/lightning-llc-jpn/mustdo-mcp", "source": "github" },
+  "remotes": [
+    { "type": "streamable-http", "url": "https://ltng.jp/api/mustdo/mcp" }
+  ]
+}
