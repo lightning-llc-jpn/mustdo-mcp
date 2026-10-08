@@ -55,6 +55,18 @@ describe("MCP サーバー", () => {
     expect(tools).toEqual(["add_todo", "complete_todo", "delete_todo", "get_me", "list_todos", "sign_in", "snooze_todo", "update_todo"]);
   });
 
+  it("delete_todo は破壊的操作、get_me / list_todos は読み取り専用と注釈されている", async () => {
+    const { client } = await connect(fake, homeDir);
+    const tools = new Map((await client.listTools()).tools.map((t) => [t.name, t.annotations]));
+    expect(tools.get("delete_todo")).toMatchObject({ destructiveHint: true });
+    expect(tools.get("delete_todo")?.readOnlyHint).not.toBe(true);
+    expect(tools.get("get_me")).toMatchObject({ readOnlyHint: true });
+    expect(tools.get("list_todos")).toMatchObject({ readOnlyHint: true });
+    for (const name of ["add_todo", "update_todo", "complete_todo", "snooze_todo", "sign_in"]) {
+      expect(tools.get(name)?.readOnlyHint, name).not.toBe(true);
+    }
+  });
+
   it("auth.json が無いと isError + NOT_SIGNED_IN、ブラウザは開かない", async () => {
     const opened: string[] = [];
     const { client } = await connect(fake, homeDir, opened);
