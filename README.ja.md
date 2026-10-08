@@ -7,7 +7,7 @@
 Claude（Claude Code・Claude Desktop・claude.ai・iPhone の Claude アプリ）など
 [Model Context Protocol](https://modelcontextprotocol.io/) 対応クライアントから、MustDo の TODO を読み書きできます。
 
-- **データは利用者自身の iCloud にあります。** MustDo に自前のバックエンドはありません。TODO は Apple ID の CloudKit
+- **データは利用者自身の iCloud にあります。** MustDo は TODO 用のデータベースを自前で持ちません。TODO は Apple ID の CloudKit
   *private* database（container `iCloud.jp.lightning.mustdo`、zone `MustDo`）にあり、このサーバーは Apple の
   [CloudKit Web Services](https://developer.apple.com/library/archive/documentation/DataManagement/Conceptual/CloudKitWebServicesReference/)
   で iPhone アプリと同じレコードを読み書きします。
@@ -17,10 +17,10 @@ Claude（Claude Code・Claude Desktop・claude.ai・iPhone の Claude アプリ�
 
 ## 使い方は 2 通り
 
-| | A. 中継を使う（おすすめ） | B. このリポジトリをローカルで動かす |
+| | A. 中継を使う（おすすめ） | B. このリポジトリをローカルで動かす（開発者向け） |
 |---|---|---|
 | 使える場所 | claude.ai、iPhone の Claude アプリ、リモート MCP＋OAuth 対応クライアント | Mac の Claude Code / Claude Desktop（stdio） |
-| 準備 | カスタムコネクタを追加して Apple ID でサインイン | Node 24、ビルド、設定、サインイン |
+| 準備 | カスタムコネクタを追加して Apple ID でサインイン | Node 24、ビルド、設定、サインイン。**一般には配布していない** CloudKit API Token が必要（下記） |
 | Lightning LLC が預かるもの | **CloudKit のサインイン用トークンだけ**（AWS KMS で暗号化。下記） | 何も預かりません |
 
 ### A. 中継 — `https://ltng.jp/api/mustdo/mcp`
@@ -47,7 +47,7 @@ Claude（Claude Code・Claude Desktop・claude.ai・iPhone の Claude アプリ�
 
 - macOS と **Node.js 24 以上**
 - MustDo アプリを一度起動して iCloud に同期していること（zone と `Account` レコードはアプリが作ります）
-- MustDo の container 用の **CloudKit API Token** — 次節
+- MustDo の container 用の **CloudKit API Token**。**現在、一般には配布していません** — 下の「CloudKit API Token について」を参照。無い場合は中継（A）をお使いください
 
 ```bash
 git clone https://github.com/lightning-llc-jpn/mustdo-mcp mustdo-mcp
@@ -85,13 +85,14 @@ CloudKit Web Services はリクエストごとに 2 つのトークンを使い�
 | トークン | 何か | 誰が持つか |
 |---|---|---|
 | `ckAPIToken` | **container**（`iCloud.jp.lightning.mustdo`）を識別するトークン。CloudKit Dashboard で container の所有チームが発行します。Apple は「Web サイトや埋め込み Web ビューから使う」ものと位置づけており、Sign-in Callback の URL が固定されたクライアント側トークンです。 | Lightning LLC（container は MustDo 開発元のもの）。**利用者が自分で作ることはできません** — CloudKit Dashboard は自チームの container に対してしかトークンを発行できません。 |
-| `ckWebAuthToken` | Apple ID でサインインしたときに Apple が発行する、利用者個人の CloudKit セッション。**private database に入れるのはこれがあるときだけ**です。 | 利用者本人だけ。`~/.mustdo/auth.json` に保存され、Apple 以外へは出ません。 |
+| `ckWebAuthToken` | Apple ID でサインインしたときに Apple が発行する、利用者個人の CloudKit セッション。**private database に入れるのはこれがあるときだけ**です。 | 利用者本人だけ。`~/.mustdo/auth.json` に保存されます。production 用のトークンでは、サインインの戻りのときだけ `ltng.jp` の転送を通ります（下記。保存もログもしません）。それ以降は Apple にだけ送られます。 |
 
-API Token は container 単位で利用者が作れないため、ローカル利用向けの値は Lightning LLC が提供します。
-<https://ltng.jp/mustdo/mcp> に掲載の値を `MUSTDO_CK_API_TOKEN` に使ってください
-（*production* 環境用のトークンの Sign-in Callback は `https://ltng.jp/api/mustdo/oauth/local-callback` で、
-これは何も保存せず `http://localhost:51234/callback` に戻すだけの踏み台です）。ページにトークンが無い場合、
-ローカル利用は現在提供していません — 中継をお使いください。
+API Token は container 単位で、利用者が自分で作ることはできません。**Lightning LLC は現在このトークンを一般には
+配布していないため、ローカルでの利用は一般向けには提供していません — 中継（A）をお使いください。**
+コードを公開しているのは、MCP サーバーがデータをどう扱うかを読んで確かめられるようにするためです。
+
+参考: *production* 環境用のトークンの Sign-in Callback は `https://ltng.jp/api/mustdo/oauth/local-callback` で、
+これは何も保存せずログにも残さず `http://localhost:51234/callback` に戻すだけの転送です。
 
 #### 設定
 
