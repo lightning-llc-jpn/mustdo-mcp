@@ -1,0 +1,47 @@
+name: Issue number in commit messages
+
+# Checks that every pushed commit message references an issue as "Issue #N".
+# Same rule as tools/git-hooks/commit-msg; this catches commits made in a clone
+# where the hook was not installed. Runs on pushes to this repository only.
+on:
+  push:
+    branches:
+      - '**'
+      - '!dependabot/**'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Find commits without an issue number
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          # When the rule was introduced. Older commits are not checked.
+          SINCE: '2026-10-14T10:00:00+09:00'
+        run: |
+          set -euo pipefail
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            # New branch or force push: look at commits that are not on main
+            range="origin/main..$AFTER"
+          else
+            range="$BEFORE..$AFTER"
+          fi
+          since_epoch="$(date -d "$SINCE" +%s)"
+          bad=0
+          for sha in $(git rev-list "$range"); do
+            [ "$(git show -s --format=%ct "$sha")" -ge "$since_epoch" ] || continue
+            # Dependabot commits have no issue
+            case "$(git show -s --format=%an "$sha")" in dependabot*) continue ;; esac
+            if ! git show -s --format=%B "$sha" | grep -Eqi '(^|[^[:alnum:]])issue[[:space:]]*#[0-9]+'; then
+              echo "::error::No issue number: $(git show -s --format='%h %s' "$sha")"
+              bad=1
+            fi
+          done
+          exit "$bad"

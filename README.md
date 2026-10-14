@@ -255,6 +255,18 @@ test/           vitest
 except `auth.ts`, `config.ts`, `index.ts` and `server.ts`. Keep it free of anything that touches the
 local file system or a browser.
 
+### Workflow: start from an issue
+
+Every change starts from a GitHub issue. Reference it in the commit message as `Issue #N`
+(for example `Fix the due-date default for repeating To-Dos (Issue #12)`; merge commits too), and
+close the issue once the change is on `main`. A bare `#12` is not accepted.
+
+```bash
+bash tools/git-hooks/install.sh   # once per clone: installs the commit-msg hook that enforces this
+```
+
+Pushed commits are checked again by `.github/workflows/issue-number.yml`.
+
 ## License
 
 MIT — Copyright (c) 2026 Lightning LLC. See [LICENSE](./LICENSE).
