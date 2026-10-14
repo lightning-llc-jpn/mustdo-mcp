@@ -248,6 +248,18 @@ test/           vitest
 `dist/core.js`（package の `exports`）が中継の使う **共有コア** です。`auth.ts`・`config.ts`・`index.ts`・`server.ts` 以外の全部。
 ここにローカルのファイルやブラウザに触るものを入れないでください。
 
+### 進め方: Issue から始める
+
+変更は、先に GitHub の Issue を立ててから始めます。コミットメッセージに `Issue #番号` を入れ
+（例 `Fix the due-date default for repeating To-Dos (Issue #12)`。マージのコミットも同じ）、
+`main` に入ったら Issue を閉じます。`#12` だけでは通りません。
+
+```bash
+bash tools/git-hooks/install.sh   # クローンごとに 1 回。この決まりを確かめる commit-msg フックを入れる
+```
+
+push されたコミットは `.github/workflows/issue-number.yml` でも確かめます。
+
 ## ライセンス
 
 MIT — Copyright (c) 2026 Lightning LLC。[LICENSE](./LICENSE) を参照。

@@ -1,0 +1,29 @@
+#!/bin/sh
+# Stop commits whose message has no issue reference.
+# Every change to this repository starts from a GitHub issue; reference it as "Issue #12"
+# somewhere in the commit message (merge commits too: git merge --no-ff -m "... (Issue #12)").
+#   e.g.  Fix the due-date default for repeating To-Dos (Issue #12)
+# A bare "#12" is not accepted.
+#
+# Install once per clone: bash tools/git-hooks/install.sh  (worktrees share the clone's hooks)
+
+msg_file="$1"
+
+# Ignore comment lines and the diff that `git commit -v` appends below the scissors line
+if sed -e '/^# -\{24\} >8 -\{24\}$/,$d' -e '/^#/d' "$msg_file" | grep -Eqi '(^|[^[:alnum:]])issue[[:space:]]*#[0-9]+'; then
+  exit 0
+fi
+
+cat >&2 <<'MSG'
+
+✗ Commit stopped: the message has no issue number.
+  コミットを止めました: メッセージに Issue 番号がありません。
+
+  Changes to mustdo-mcp start from a GitHub issue (README "Development").
+    1. gh issue create -R lightning-llc-jpn/mustdo-mcp --title "…" --body "…"   (if there is none yet)
+    2. Commit again with "Issue #N" in the message
+         e.g.  Fix the due-date default for repeating To-Dos (Issue #12)
+  Merge commits too:  git merge --no-ff -m "Merge branch '…' (Issue #12)" …
+
+MSG
+exit 1
