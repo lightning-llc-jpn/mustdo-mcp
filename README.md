@@ -132,6 +132,9 @@ All tools return JSON. Dates in output are ISO 8601 (UTC). Dates in input may be
 | `snooze_todo` | `id`, `until`, `occurrenceDate?` | Snoozes until `until`. Repeating: only that day's occurrence. |
 | `delete_todo` | `id` | Soft delete (`deletedAt`). The app purges it after 14 days. |
 
+> **Note:** Your AI client adds, changes and deletes To-Dos on your instruction. A deleted To-Do is removed from iCloud after 14 days and cannot be restored. Please check the results of the AI's actions yourself.
+> `delete_todo` is annotated as destructive (`destructiveHint`), and `get_me` / `list_todos` as read-only (`readOnlyHint`), so clients that honor annotations ask before deleting.
+
 ### Default time and omitted `due`
 
 Each account has a default alarm time (`Account.defaultTime`, `HH:mm`, set in the app's settings; `09:00` if unset).

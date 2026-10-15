@@ -109,6 +109,7 @@ export function registerTodoTools(server: McpServer, service: MustDoService, run
         "Account レコード（trialStartedAt / subscribedUntil / timeZone / defaultTime）と、その時間帯での今日の日付・曜日、" +
         "due を省略したときに使われる「明日の既定時刻」（defaultDueNext、ISO8601）を返す。日付を扱う前に呼ぶ。",
       inputSchema: {},
+      annotations: { readOnlyHint: true },
     },
     async () => run("get_me", () => service.getMe()),
   );
@@ -130,6 +131,7 @@ export function registerTodoTools(server: McpServer, service: MustDoService, run
         status: z.enum([...TODO_STATUSES, "all"]).optional().describe("既定 pending。done / skipped は単発だけに効く"),
         includeRepeating: z.boolean().optional().describe("既定 true。false で繰り返しテンプレートを省く"),
       },
+      annotations: { readOnlyHint: true },
     },
     async (input) => run("list_todos", () => service.listTodos(input)),
   );
@@ -212,6 +214,8 @@ export function registerTodoTools(server: McpServer, service: MustDoService, run
       title: "TODO を削除",
       description: "deletedAt を書く soft delete。アプリ側で 14 日後に物理削除される。",
       inputSchema: { id: z.string().min(1) },
+      // 破壊的操作。クライアントが実行前に確認を出せるようにする（14 日後に iCloud から消え、元に戻せない）。
+      annotations: { destructiveHint: true },
     },
     async ({ id }) => run("delete_todo", () => service.deleteTodo(id)),
   );

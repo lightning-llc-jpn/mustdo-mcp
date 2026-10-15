@@ -130,6 +130,9 @@ Apple のセッションはしばらくすると失効します（CloudKit が H
 | `snooze_todo` | `id`・`until`・`occurrenceDate?` | `until` までスヌーズ。繰り返しはその日の回だけ |
 | `delete_todo` | `id` | soft delete（`deletedAt`）。アプリが 14 日後に物理削除 |
 
+> **注意:** AI クライアントはあなたの指示で TODO を追加・変更・削除します。削除した TODO は14日後に iCloud から消え、元に戻せません。AI の操作結果は、ご自身で確認してください。
+> `delete_todo` には破壊的操作の注釈（`destructiveHint`）、`get_me` と `list_todos` には読み取り専用の注釈（`readOnlyHint`）を付けています。対応するクライアントは削除の前に確認を出します。
+
 ### 既定時刻と `due` の省略
 
 アカウントごとに鳴らす時刻の既定（`Account.defaultTime`、`HH:mm`、アプリの設定で変更。無ければ `09:00`）があります。
