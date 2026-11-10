@@ -39,7 +39,7 @@ Claude（Claude Code・Claude Desktop・claude.ai・iPhone の Claude アプリ�
   Apple ID で本人確認すると保管トークンは即時削除されます。Apple 側でサインインが失効したときも自動で削除されます
   （ツールは `RECONNECT_REQUIRED` を返すので、接続し直してください）。
 
-詳しい説明: <https://ltng.jp/mustdo/mcp>
+詳しい説明: <https://ltng.jp/mustdo/ja/mcp>
 
 ### B. ローカルで動かす（stdio）
 
