@@ -75,7 +75,8 @@ claude mcp add mustdo \
 }
 ```
 
-あとは Claude に `sign_in` ツールを一度実行してもらいます。サーバーが Apple のサインイン画面をブラウザで開き、
+あとは Claude に `sign_in` ツールを一度実行してもらいます。サーバーが Apple のサインイン画面をブラウザで開き
+（`production` では `https://ltng.jp/api/mustdo/oauth/local-start` を通ります。下記）、
 `http://localhost:51234/callback` で待ち受け、戻ってきたトークンを `~/.mustdo/auth.json`（権限 `0600`）に保存します。
 
 #### CloudKit API Token について
@@ -94,6 +95,18 @@ API Token は container 単位で、利用者が自分で作ることはでき�
 参考: *production* 環境用のトークンの Sign-in Callback は `https://ltng.jp/api/mustdo/oauth/local-callback` で、
 これは何も保存せずログにも残さず `http://localhost:51234/callback` に戻すだけの転送です。
 
+この戻り先は固定で、Apple の URL に `state` を載せられません。そこで `sign_in` は ltng.jp を通して戻りを自分に結びつけます
+（ログイン CSRF 対策。攻撃者のページが `http://localhost:51234/callback?ckSession=<攻撃者のセッション>` を開かせて、
+この MCP を他人の iCloud につなぐのを防ぎます）。
+
+1. `sign_in` は乱数の `state`（32 バイトの base64url）を作り、Apple の URL ではなく
+   `https://ltng.jp/api/mustdo/oauth/local-start?state=<state>&to=<Apple のサインイン URL>` を開きます。
+2. ltng.jp は `state` を短い Cookie（10 分）に預けて Apple へ転送し、戻りの `local-callback` で localhost への転送に `state=<Cookie の値>` を足します。
+3. 手元のサーバーは、`state` が自分のものと一致（定数時間で比較）したときだけ保存します。違う・無いときは HTTP 400 を返し、
+   保存せずに本物のサインインを待ち続けます。
+
+`development`（戻り先が ltng.jp ではなく `localhost` 直接）では Apple の画面を直接開き、`state` は見ません。
+
 #### 設定
 
 環境変数が `~/.mustdo/config.json` より優先されます。
@@ -105,6 +118,7 @@ API Token は container 単位で、利用者が自分で作ることはでき�
 | `MUSTDO_CK_CONTAINER` | `container` | `iCloud.jp.lightning.mustdo` | 変えない |
 | `MUSTDO_CK_ZONE` | `zoneName` | `MustDo` | 変えない |
 | `MUSTDO_CALLBACK_PORT` | `callbackPort` | `51234` | サインインの戻り先ポート |
+| `MUSTDO_LOCAL_START_URL` | `localStartURL` | `https://ltng.jp/api/mustdo/oauth/local-start` | `production` の `sign_in` が `state` を預けるために開くページ（https だけ。普通は変えない） |
 | `MUSTDO_HOME` | — | `~/.mustdo` | `config.json` と `auth.json` の置き場所 |
 | `MUSTDO_LOG_LEVEL` | — | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR`（stderr に JSON 行） |
 
@@ -214,7 +228,7 @@ iOS カレンダーと同じ語彙。`add_todo` / `update_todo` の入力と `li
 - **API Token** は container を識別し、サインイン後の戻り先を固定するだけです。Apple はクライアント側トークンとして位置づけており
   （通常は CloudKit JS の Web ページに埋め込まれる）、それ単体では誰の private データにもアクセスできません。
 - **ローカル**では、セッションは `~/.mustdo/auth.json`（`0600`）に保存、ログは stderr に JSON で出しトークンは含めず、
-  サインインの待ち受けは `127.0.0.1` / `::1` だけに bind します。
+  サインインの待ち受けは `127.0.0.1` / `::1` だけに bind し、`production` では自分が作った `state` の付いた戻りしか受け付けません。
 - **中継**では、セッションを利用者ごとに AWS KMS でエンベロープ暗号化（encryption context 付き）、OAuth トークンはペッパー付き
   SHA-256 ハッシュだけを保存、PKCE S256 必須、リフレッシュトークンはローテーション＋再利用検知、TODO の内容は保存もログもしません。
 - 書き込みは CloudKit の `recordChangeTag`（楽観ロック）付きで衝突時に 1 回再試行、削除は soft delete です。

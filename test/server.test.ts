@@ -1,6 +1,6 @@
 /// MCP の配線ごしに叩く。ツールの isError / code がクライアントに届くことを確かめる。
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,14 +14,20 @@ import { accountRecord, FakeCloudKit, todoRecord, tokyo } from "./fakeCloudKit.j
 
 const NOW = new Date(tokyo(2026, 10, 5, 8, 0));
 
-async function connect(fake: FakeCloudKit, homeDir: string, opened: string[] = []) {
+const CALLBACK_PORT = 51299;
+const APPLE_SIGN_IN_URL = "https://idmsa.apple.com/appleauth/auth/signin?fake=1";
+const LOCAL_START_URL = "https://ltng.jp/api/mustdo/oauth/local-start";
+
+async function connect(fake: FakeCloudKit, homeDir: string, opened: string[] = [], overrides: Partial<Config> = {}) {
   const config: Config = {
     apiToken: "api-token",
     environment: "development",
     container: "iCloud.jp.lightning.mustdo",
     zoneName: "MustDo",
     homeDir,
-    callbackPort: 51299,
+    callbackPort: CALLBACK_PORT,
+    localStartURL: LOCAL_START_URL,
+    ...overrides,
   };
   const server = createServer({ config, fetch: fake.fetch, now: () => NOW, openBrowser: (url) => opened.push(url) });
   const client = new Client({ name: "test", version: "0" });
@@ -33,6 +39,25 @@ async function connect(fake: FakeCloudKit, homeDir: string, opened: string[] = [
 function parse(result: Awaited<ReturnType<Client["callTool"]>>): any {
   const content = result.content as { type: string; text: string }[];
   return JSON.parse(content[0]!.text);
+}
+
+async function waitForBrowser(opened: string[]): Promise<string> {
+  for (let i = 0; i < 50 && opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 20));
+  expect(opened).toHaveLength(1);
+  return opened[0]!;
+}
+
+/// Apple（production では ltng.jp の踏み台）の戻りを真似て callback を叩く。待ち受けが立つまでは接続エラーなので少し待ってやり直す。
+async function hitCallback(query: Record<string, string>): Promise<Response> {
+  const url = `http://127.0.0.1:${CALLBACK_PORT}/callback?${new URLSearchParams(query).toString()}`;
+  for (let i = 0; ; i += 1) {
+    try {
+      return await fetch(url);
+    } catch (error) {
+      if (i >= 50) throw error;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
 }
 
 describe("MCP サーバー", () => {
@@ -94,23 +119,13 @@ describe("MCP サーバー", () => {
     expect(parse(result).code).toBe("NOT_SIGNED_IN");
   });
 
-  it("sign_in はブラウザを開き、callback で auth.json を保存して以後のツールが通る", async () => {
+  it("development の sign_in は Apple の画面を直接開き、state 無しの callback で auth.json を保存して以後のツールが通る", async () => {
     const opened: string[] = [];
     const { client } = await connect(fake, homeDir, opened);
 
     const signIn = client.callTool({ name: "sign_in", arguments: { waitSeconds: 10 } });
-    // ブラウザが開くのを待ってから、Apple の戻りを真似て callback を叩く。
-    for (let i = 0; i < 50 && opened.length === 0; i += 1) await new Promise((r) => setTimeout(r, 20));
-    expect(opened[0]).toContain("idmsa.apple.com");
-    for (let i = 0; i < 50; i += 1) {
-      try {
-        const res = await fetch("http://127.0.0.1:51299/callback?ckSession=" + encodeURIComponent("new+token/=="));
-        expect(res.status).toBe(200);
-        break;
-      } catch {
-        await new Promise((r) => setTimeout(r, 20));
-      }
-    }
+    expect(await waitForBrowser(opened)).toBe(APPLE_SIGN_IN_URL);
+    expect((await hitCallback({ ckSession: "new+token/==" })).status).toBe(200);
     const result = await signIn;
     expect(result.isError).toBeFalsy();
     expect(parse(result).signedIn).toBe(true);
@@ -121,6 +136,32 @@ describe("MCP サーバー", () => {
     expect(parse(me).today).toBe("2026-10-05");
     const authed = fake.calls.find((c) => c.path === "records/lookup")!;
     expect(authed.query.get("ckWebAuthToken")).toBe("new+token/==");
+  });
+
+  it("production の sign_in は ltng.jp の local-start を開き、自分の state が戻ったときだけ保存する（ログイン CSRF 対策）", async () => {
+    const opened: string[] = [];
+    const { client } = await connect(fake, homeDir, opened, { environment: "production" });
+
+    const signIn = client.callTool({ name: "sign_in", arguments: { waitSeconds: 10 } });
+    const startURL = new URL(await waitForBrowser(opened));
+    expect(startURL.origin + startURL.pathname).toBe(LOCAL_START_URL);
+    expect(startURL.searchParams.get("to")).toBe(APPLE_SIGN_IN_URL);
+    const state = startURL.searchParams.get("state")!;
+    expect(state).toMatch(/^[A-Za-z0-9_-]{43,128}$/); // 32 バイト以上の base64url
+
+    // 攻撃者のページが開かせた callback: state 無し・違う state は 400 で、保存しない
+    for (const query of [{ ckSession: "attacker" }, { ckSession: "attacker", state: "x".repeat(state.length) }, { ckSession: "attacker", state: state + "x" }]) {
+      const res = await hitCallback(query);
+      expect(res.status).toBe(400);
+      expect(res.headers.get("content-type")).toContain("text/html");
+      expect(existsSync(join(homeDir, "auth.json"))).toBe(false);
+    }
+
+    // 待ち受けは続いていて、本物の戻りで保存される
+    expect((await hitCallback({ ckSession: "real-token", state })).status).toBe(200);
+    const result = await signIn;
+    expect(parse(result).signedIn).toBe(true);
+    expect(JSON.parse(readFileSync(join(homeDir, "auth.json"), "utf8"))).toMatchObject({ ckWebAuthToken: "real-token", environment: "production" });
   });
 
   it("CloudKit が返した新しいトークンを auth.json に保存し、次の呼び出しで使う", async () => {
