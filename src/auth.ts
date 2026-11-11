@@ -55,9 +55,10 @@ export class AuthStore {
     log("INFO", "auth.saved", { path: this.path, environment: this.environment });
   }
 
-  /// 421 を受けたときに呼ぶ。次の呼び出しで `sign_in` を促す。
+  /// 421 を受けたときに呼ぶ。手元の覚えを捨て、次の呼び出しで auth.json を読み直す。並行の呼び出しが新しいトークンを
+  /// 保存し直していればそれを使い、本当に失効していれば CloudKit がまた 421 を返して `sign_in` を促す。
   invalidate(): void {
-    this.cached = null;
+    this.cached = undefined;
   }
 }
 
