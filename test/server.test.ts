@@ -123,6 +123,33 @@ describe("MCP サーバー", () => {
     expect(authed.query.get("ckWebAuthToken")).toBe("new+token/==");
   });
 
+  it("CloudKit が返した新しいトークンを auth.json に保存し、次の呼び出しで使う", async () => {
+    fake.options.rotateTokens = true;
+    writeFileSync(join(homeDir, "auth.json"), JSON.stringify({ ckWebAuthToken: "first", environment: "development" }));
+    const { client } = await connect(fake, homeDir);
+
+    expect((await client.callTool({ name: "get_me", arguments: {} })).isError).toBeFalsy();
+    expect(JSON.parse(readFileSync(join(homeDir, "auth.json"), "utf8"))).toMatchObject({ ckWebAuthToken: fake.currentToken });
+
+    // 古いトークンは fake が 421 にするので、通れば差し替えたものを送っている
+    expect((await client.callTool({ name: "list_todos", arguments: {} })).isError).toBeFalsy();
+    expect(fake.calls.at(-1)!.query.get("ckWebAuthToken")).not.toBe("first");
+    expect(JSON.parse(readFileSync(join(homeDir, "auth.json"), "utf8"))).toMatchObject({ ckWebAuthToken: fake.currentToken });
+  });
+
+  it("古いトークンで 421 になっても、保存し直された新しいトークンは捨てない", async () => {
+    writeFileSync(join(homeDir, "auth.json"), JSON.stringify({ ckWebAuthToken: "old", environment: "development" }));
+    const { client } = await connect(fake, homeDir);
+    expect((await client.callTool({ name: "get_me", arguments: {} })).isError).toBeFalsy(); // "old" を覚える
+    // 並行の呼び出しが先に新しいトークンを保存した、の再現: 古い方は 421 になり、auth.json は新しい方に書き換わっている
+    fake.options.unauthenticated = true;
+    writeFileSync(join(homeDir, "auth.json"), JSON.stringify({ ckWebAuthToken: "new", environment: "development" }));
+    expect(parse(await client.callTool({ name: "get_me", arguments: {} })).code).toBe("NOT_SIGNED_IN");
+    fake.options.unauthenticated = false;
+    expect((await client.callTool({ name: "get_me", arguments: {} })).isError).toBeFalsy();
+    expect(fake.calls.at(-1)!.query.get("ckWebAuthToken")).toBe("new");
+  });
+
   it("add_todo の試用切れは isError + PAYMENT_REQUIRED", async () => {
     writeFileSync(join(homeDir, "auth.json"), JSON.stringify({ ckWebAuthToken: "ok", environment: "development" }));
     fake.put(accountRecord({ trialStartedAt: tokyo(2026, 8, 1) }));

@@ -66,7 +66,14 @@ export interface CloudKitClientOptions {
   fetch?: typeof fetch;
   /// 保存済みの ckWebAuthToken を返す。無ければ null。
   getWebAuthToken: () => string | null;
+  /// CloudKit が応答ヘッダーで新しい ckWebAuthToken を返したときに呼ぶ。呼び出し側は保存し直し、次から
+  /// `getWebAuthToken` でそれを返す。最初のトークンを使い続けると発行から 30 分（「サインインしたままにする」なら
+  /// 2 週間）で 421 になる。
+  onWebAuthTokenRotated?: (token: string) => void;
 }
+
+/// 新しい ckWebAuthToken を運ぶ応答ヘッダー。Apple の CloudKit JS と同じく前者を先に見る。
+const ROTATED_TOKEN_HEADERS = ["x-apple-cloudkit-web-auth-token", "x-apple-cloudkit-session"] as const;
 
 interface CKErrorBody {
   uuid?: string;
@@ -143,7 +150,7 @@ export class CloudKitClient {
 
   /// サインイン画面の URL を取る。ckWebAuthToken 無しで叩いて 421 の `redirectURL` を拾う。
   async fetchSignInURL(): Promise<string> {
-    const url = this.buildURL("users/caller", { includeAuth: false });
+    const url = this.buildURL("users/caller", null);
     const response = await this.fetchImpl(url, { method: "GET" });
     const body = (await safeJSON(response)) as CKErrorBody | null;
     if (response.status === 421 && body?.redirectURL) return body.redirectURL;
@@ -153,13 +160,9 @@ export class CloudKitClient {
     throw this.httpError(response.status, body);
   }
 
-  private buildURL(path: string, opts: { includeAuth: boolean }): string {
+  private buildURL(path: string, webAuthToken: string | null): string {
     const params = new URLSearchParams({ ckAPIToken: this.options.apiToken });
-    if (opts.includeAuth) {
-      const token = this.options.getWebAuthToken();
-      if (!token) throw new NotSignedInError();
-      params.set("ckWebAuthToken", token);
-    }
+    if (webAuthToken) params.set("ckWebAuthToken", webAuthToken);
     return `${this.baseURL}/${path}?${params.toString()}`;
   }
 
@@ -167,17 +170,33 @@ export class CloudKitClient {
     if (!this.options.apiToken) {
       throw new ToolError("NOT_CONFIGURED", "MUSTDO_CK_API_TOKEN（または ~/.mustdo/config.json の apiToken）が未設定です。README を見て CloudKit Dashboard で API Token を作ってください。");
     }
-    const url = this.buildURL(path, { includeAuth: true });
+    const sentToken = this.options.getWebAuthToken();
+    if (!sentToken) throw new NotSignedInError();
+    const url = this.buildURL(path, sentToken);
     const started = Date.now();
     const response = await this.fetchImpl(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+    this.takeRotatedToken(response, sentToken);
     const json = await safeJSON(response);
     log("DEBUG", "cloudkit.request", { path, status: response.status, ms: Date.now() - started });
     if (response.ok) return json;
     throw this.httpError(response.status, json as CKErrorBody | null);
+  }
+
+  private takeRotatedToken(response: Response, sentToken: string): void {
+    if (!this.options.onWebAuthTokenRotated || response.status === 421) return;
+    for (const name of ROTATED_TOKEN_HEADERS) {
+      const token = response.headers.get(name);
+      if (!token) continue;
+      if (token !== sentToken) {
+        this.options.onWebAuthTokenRotated(token);
+        log("DEBUG", "cloudkit.tokenRotated", { header: name });
+      }
+      return;
+    }
   }
 
   private httpError(status: number, body: CKErrorBody | null): ToolError {

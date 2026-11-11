@@ -7,6 +7,8 @@ export interface FakeOptions {
   unauthenticated?: boolean;
   /// 次の `update` を 1 回だけ CONFLICT にする。
   conflictOnce?: boolean;
+  /// true なら Apple と同じく、成功した応答ごとに新しい ckWebAuthToken をヘッダーで返し、古いものは 421 にする。
+  rotateTokens?: boolean;
 }
 
 export interface Call {
@@ -21,6 +23,9 @@ export class FakeCloudKit {
   readonly calls: Call[] = [];
   options: FakeOptions;
   private tagCounter = 0;
+  private rotation = 0;
+  /// rotateTokens のとき、最後に渡したトークン。これ以外は 421。
+  currentToken: string | null = null;
 
   constructor(options: FakeOptions = {}) {
     this.options = options;
@@ -47,7 +52,9 @@ export class FakeCloudKit {
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     this.calls.push({ path, method: init?.method ?? "GET", query: url.searchParams, body });
 
-    if (this.options.unauthenticated || !url.searchParams.get("ckWebAuthToken")) {
+    const sentToken = url.searchParams.get("ckWebAuthToken");
+    const stale = this.options.rotateTokens && this.currentToken !== null && sentToken !== this.currentToken;
+    if (this.options.unauthenticated || !sentToken || stale) {
       return json(421, {
         uuid: "u",
         serverErrorCode: "AUTHENTICATION_REQUIRED",
@@ -56,6 +63,16 @@ export class FakeCloudKit {
       });
     }
 
+    const response = this.respond(path, body);
+    if (this.options.rotateTokens && response.ok) {
+      this.rotation += 1;
+      this.currentToken = `rotated-${this.rotation}`;
+      response.headers.set("x-apple-cloudkit-web-auth-token", this.currentToken);
+    }
+    return response;
+  };
+
+  private respond(path: string, body: any): Response {
     switch (path) {
       case "records/query": {
         const type = body.query.recordType as string;
@@ -76,7 +93,7 @@ export class FakeCloudKit {
       default:
         return json(404, { serverErrorCode: "BAD_REQUEST", reason: `unknown path ${path}` });
     }
-  };
+  }
 
   private applyOperation(op: any): unknown {
     const { operationType, record } = op;
