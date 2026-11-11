@@ -27,7 +27,8 @@ It lets Claude (Claude Code, Claude Desktop, claude.ai, the Claude iPhone app) a
 
 1. claude.ai → **Settings → Connectors → Add custom connector** → URL `https://ltng.jp/api/mustdo/mcp` (name it "MustDo").
 2. Click **Connect**. You will see a consent page on ltng.jp explaining what is stored, then Apple's sign-in page.
-   Sign in with **the same Apple ID you use in the MustDo app**.
+   Sign in with **the same Apple ID you use in the MustDo app**, and choose **Keep me signed in**
+   (otherwise Apple ends the session after 30 minutes and you will have to reconnect).
 3. Done. The same connector is available in the Claude iPhone app.
 
 **What the relay keeps, honestly:**
@@ -111,7 +112,9 @@ Environment variables win over `~/.mustdo/config.json`.
 | `MUSTDO_LOG_LEVEL` | — | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR` (JSON lines on stderr) |
 
 `auth.json` is per environment; switching `MUSTDO_CK_ENV` requires another `sign_in`.
-Apple expires the session after a while (CloudKit returns HTTP 421); tools then return `NOT_SIGNED_IN` and you run `sign_in` again.
+CloudKit returns a fresh token in the `x-apple-cloudkit-web-auth-token` response header on each request; the server saves it back to `auth.json`.
+Choose **Keep me signed in** on Apple's page: without it the session expires after 30 minutes (2 weeks with it).
+When it expires (CloudKit returns HTTP 421), tools return `NOT_SIGNED_IN` and you run `sign_in` again.
 
 ## Tools
 

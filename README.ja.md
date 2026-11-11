@@ -26,7 +26,7 @@ Claude（Claude Code・Claude Desktop・claude.ai・iPhone の Claude アプリ�
 ### A. 中継 — `https://ltng.jp/api/mustdo/mcp`
 
 1. claude.ai → **設定 → コネクタ → カスタムコネクタを追加** → URL `https://ltng.jp/api/mustdo/mcp`（名前は「MustDo」）
-2. **接続** → ltng.jp の同意画面（何を預かるかの説明）→ Apple のサインイン画面で **MustDo アプリと同じ Apple ID** でサインイン
+2. **接続** → ltng.jp の同意画面（何を預かるかの説明）→ Apple のサインイン画面で **MustDo アプリと同じ Apple ID** でサインインし、**「サインインしたままにする」を選ぶ**（選ばないと Apple が 30 分でセッションを切るので、接続し直しが要ります）
 3. 完了。iPhone の Claude アプリでも同じコネクタが使えます
 
 **中継が預かるもの（正直に）:**
@@ -109,7 +109,9 @@ API Token は container 単位で、利用者が自分で作ることはでき�
 | `MUSTDO_LOG_LEVEL` | — | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR`（stderr に JSON 行） |
 
 `auth.json` は環境ごとに別です。`MUSTDO_CK_ENV` を変えたら `sign_in` をやり直してください。
-Apple のセッションはしばらくすると失効します（CloudKit が HTTP 421）。ツールが `NOT_SIGNED_IN` を返したら `sign_in` をもう一度。
+CloudKit は応答ごとに新しいトークンをヘッダー `x-apple-cloudkit-web-auth-token` で返すので、サーバーが `auth.json` に保存し直します。
+Apple の画面では **「サインインしたままにする」** を選んでください。選ばないとセッションは 30 分で切れます（選ぶと 2 週間）。
+切れたら（CloudKit が HTTP 421）ツールが `NOT_SIGNED_IN` を返すので、`sign_in` をもう一度。
 
 ## ツール
 

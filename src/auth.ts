@@ -92,7 +92,7 @@ export async function signIn(redirectURL: string, store: AuthStore, options: Sig
   }
   return {
     signedIn: false,
-    message: `ブラウザで Apple ID のサインインを完了してください（${options.waitSeconds} 秒待ちましたが戻ってきていません）。完了後にもう一度 sign_in を呼ぶか、他のツールをそのまま呼んでください。開いた URL: ${redirectURL}`,
+    message: `ブラウザで Apple ID のサインインを完了してください。「サインインしたままにする」を選ぶと 30 分で切れません（${options.waitSeconds} 秒待ちましたが戻ってきていません）。完了後にもう一度 sign_in を呼ぶか、他のツールをそのまま呼んでください。開いた URL: ${redirectURL}`,
   };
 }
 

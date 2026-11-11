@@ -27,6 +27,7 @@ export function createServer(deps: ServerDeps): McpServer {
     apiToken: config.apiToken,
     zoneName: config.zoneName,
     getWebAuthToken: () => auth.getToken(),
+    onWebAuthTokenRotated: (token) => auth.saveToken(token),
     ...(deps.fetch ? { fetch: deps.fetch } : {}),
   });
   const service = new MustDoService({ client, ...(deps.now ? { now: deps.now } : {}) });
@@ -50,7 +51,7 @@ export function createServer(deps: ServerDeps): McpServer {
     {
       title: "iCloud にサインイン",
       description:
-        "Apple のサインイン画面をブラウザで開き、戻ってきた ckWebAuthToken を ~/.mustdo/auth.json に保存する。他のツールが NOT_SIGNED_IN を返したときに使う。ユーザーがブラウザ操作できるときだけ呼ぶこと。",
+        "Apple のサインイン画面をブラウザで開き、戻ってきた ckWebAuthToken を ~/.mustdo/auth.json に保存する。他のツールが NOT_SIGNED_IN を返したときに使う。ユーザーがブラウザ操作できるときだけ呼ぶこと。Apple の画面で「サインインしたままにする」を選ぶようユーザーに伝えること（選ばないとサインインは 30 分で切れる。選ぶと 2 週間）。",
       inputSchema: {
         waitSeconds: z.number().int().min(5).max(300).optional().describe("ブラウザが戻るまで待つ秒数（既定 90）"),
       },

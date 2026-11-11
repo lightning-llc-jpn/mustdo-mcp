@@ -123,6 +123,20 @@ describe("MCP サーバー", () => {
     expect(authed.query.get("ckWebAuthToken")).toBe("new+token/==");
   });
 
+  it("CloudKit が返した新しいトークンを auth.json に保存し、次の呼び出しで使う", async () => {
+    fake.options.rotateTokens = true;
+    writeFileSync(join(homeDir, "auth.json"), JSON.stringify({ ckWebAuthToken: "first", environment: "development" }));
+    const { client } = await connect(fake, homeDir);
+
+    expect((await client.callTool({ name: "get_me", arguments: {} })).isError).toBeFalsy();
+    expect(JSON.parse(readFileSync(join(homeDir, "auth.json"), "utf8"))).toMatchObject({ ckWebAuthToken: fake.currentToken });
+
+    // 古いトークンは fake が 421 にするので、通れば差し替えたものを送っている
+    expect((await client.callTool({ name: "list_todos", arguments: {} })).isError).toBeFalsy();
+    expect(fake.calls.at(-1)!.query.get("ckWebAuthToken")).not.toBe("first");
+    expect(JSON.parse(readFileSync(join(homeDir, "auth.json"), "utf8"))).toMatchObject({ ckWebAuthToken: fake.currentToken });
+  });
+
   it("add_todo の試用切れは isError + PAYMENT_REQUIRED", async () => {
     writeFileSync(join(homeDir, "auth.json"), JSON.stringify({ ckWebAuthToken: "ok", environment: "development" }));
     fake.put(accountRecord({ trialStartedAt: tokyo(2026, 8, 1) }));
