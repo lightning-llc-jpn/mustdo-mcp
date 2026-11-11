@@ -77,7 +77,8 @@ Or put the settings in `~/.mustdo/config.json` and register without `-e`:
 }
 ```
 
-Then ask Claude to run the `sign_in` tool once. The server opens Apple's sign-in page in your browser,
+Then ask Claude to run the `sign_in` tool once. The server opens Apple's sign-in page in your browser
+(in `production`, by way of `https://ltng.jp/api/mustdo/oauth/local-start`; see below),
 listens on `http://localhost:51234/callback`, and saves the returned token to `~/.mustdo/auth.json` (mode `0600`).
 
 #### About the CloudKit API Token
@@ -97,6 +98,19 @@ For reference, the token for the *production* environment has its Sign-in Callba
 `https://ltng.jp/api/mustdo/oauth/local-callback`, which simply redirects back to `http://localhost:51234/callback`
 without storing or logging anything.
 
+Because that callback URL is fixed, Apple cannot carry a `state` parameter for us, so `sign_in` binds the callback
+to itself through ltng.jp (protection against login CSRF, where a malicious page opens
+`http://localhost:51234/callback?ckSession=<attacker's session>` to connect your MCP to someone else's iCloud):
+
+1. `sign_in` creates a random `state` (32 bytes, base64url) and opens
+   `https://ltng.jp/api/mustdo/oauth/local-start?state=<state>&to=<Apple's sign-in URL>` instead of Apple's URL directly.
+2. ltng.jp keeps the `state` in a short-lived cookie (10 minutes) and redirects to Apple. On the way back,
+   `local-callback` adds `state=<cookie value>` to the redirect to localhost.
+3. The local server saves the token only when `state` matches its own (constant-time compare). Anything else gets
+   HTTP 400, nothing is saved, and the server keeps waiting for the real sign-in.
+
+In `development` (the callback is `localhost` directly, not ltng.jp) the server opens Apple's page directly and does not check `state`.
+
 #### Configuration
 
 Environment variables win over `~/.mustdo/config.json`.
@@ -108,6 +122,7 @@ Environment variables win over `~/.mustdo/config.json`.
 | `MUSTDO_CK_CONTAINER` | `container` | `iCloud.jp.lightning.mustdo` | leave as is |
 | `MUSTDO_CK_ZONE` | `zoneName` | `MustDo` | leave as is |
 | `MUSTDO_CALLBACK_PORT` | `callbackPort` | `51234` | port the sign-in callback listens on |
+| `MUSTDO_LOCAL_START_URL` | `localStartURL` | `https://ltng.jp/api/mustdo/oauth/local-start` | page `sign_in` opens in `production` to carry `state` (https only; normally leave as is) |
 | `MUSTDO_HOME` | — | `~/.mustdo` | where `config.json` and `auth.json` live |
 | `MUSTDO_LOG_LEVEL` | — | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR` (JSON lines on stderr) |
 
@@ -220,7 +235,8 @@ Failures come back with `isError: true` and a body of `{ "code": "...", "message
   Apple positions it as a client-side token (it is normally embedded in CloudKit JS web pages). By itself it grants
   no access to any user's private data.
 - **Locally**, the session is stored in `~/.mustdo/auth.json` (`0600`), logs go to stderr as JSON and never include tokens,
-  and the sign-in listener binds to `127.0.0.1` / `::1` only.
+  the sign-in listener binds to `127.0.0.1` / `::1` only, and in `production` it accepts only a callback that carries
+  the `state` it created.
 - **On the relay**, the session is encrypted with AWS KMS per user (envelope encryption with encryption context),
   OAuth tokens are stored only as peppered SHA-256 hashes, PKCE S256 is mandatory, refresh tokens rotate with
   reuse detection, and To-Do content is never written to storage or logs.

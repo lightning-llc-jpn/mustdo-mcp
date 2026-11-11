@@ -14,11 +14,14 @@ export interface Config {
   homeDir: string;
   /// サインインの戻り先 `http://127.0.0.1:<port>/callback` のポート。
   callbackPort: number;
+  /// production の `sign_in` がブラウザで開く ltng.jp の踏み台。state を Cookie に預けてから Apple へ送る（https だけ）。
+  localStartURL: string;
 }
 
 export const DEFAULT_CONTAINER = "iCloud.jp.lightning.mustdo";
 export const DEFAULT_ZONE = "MustDo";
 export const DEFAULT_CALLBACK_PORT = 51234;
+export const DEFAULT_LOCAL_START_URL = "https://ltng.jp/api/mustdo/oauth/local-start";
 
 interface FileConfig {
   apiToken?: string;
@@ -26,6 +29,7 @@ interface FileConfig {
   container?: string;
   zoneName?: string;
   callbackPort?: number;
+  localStartURL?: string;
 }
 
 function readFileConfig(path: string): FileConfig {
@@ -50,6 +54,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`MUSTDO_CK_ENV は development か production: ${environment}`);
   }
   const callbackPort = Number(env.MUSTDO_CALLBACK_PORT ?? file.callbackPort ?? DEFAULT_CALLBACK_PORT);
+  const localStartURL = env.MUSTDO_LOCAL_START_URL ?? file.localStartURL ?? DEFAULT_LOCAL_START_URL;
+  if (URL.parse(localStartURL)?.protocol !== "https:") {
+    throw new Error(`MUSTDO_LOCAL_START_URL は https の URL: ${localStartURL}`);
+  }
 
   return {
     apiToken,
@@ -58,5 +66,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     zoneName: env.MUSTDO_CK_ZONE ?? file.zoneName ?? DEFAULT_ZONE,
     homeDir,
     callbackPort,
+    localStartURL,
   };
 }

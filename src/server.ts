@@ -62,6 +62,8 @@ export function createServer(deps: ServerDeps): McpServer {
         return signIn(redirectURL, auth, {
           port: config.callbackPort,
           waitSeconds: waitSeconds ?? 90,
+          // production は Apple の戻り先が ltng.jp の踏み台なので、state を通して戻りを確かめる（auth.ts の冒頭）。
+          ...(config.environment === "production" ? { localStartURL: config.localStartURL } : {}),
           ...(deps.openBrowser ? { openBrowser: deps.openBrowser } : {}),
         });
       }),
