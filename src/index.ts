@@ -13,7 +13,7 @@ async function main(): Promise<void> {
   if (!config.apiToken) {
     log("WARN", "config.noApiToken", { hint: "MUSTDO_CK_API_TOKEN か ~/.mustdo/config.json の apiToken を設定" });
   }
-  const server = createServer({ config });
+  const server = createServer({ config, keepAlive: true });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   log("INFO", "server.started", { environment: config.environment, container: config.container, zone: config.zoneName });

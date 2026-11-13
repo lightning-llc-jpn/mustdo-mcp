@@ -27,7 +27,8 @@
   },
   "type": "module",
   "bin": {
-    "mustdo-mcp": "dist/index.js"
+    "mustdo-mcp": "dist/index.js",
+    "mustdo-keepalive": "dist/keepalive-cli.js"
   },
   "exports": {
     ".": "./dist/core.js"

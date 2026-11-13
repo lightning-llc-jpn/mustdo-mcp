@@ -48,7 +48,8 @@ export class FakeCloudKit {
 
   readonly fetch: typeof fetch = async (input, init) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
-    const path = url.pathname.split("/private/")[1] ?? "";
+    // レコード操作は private、users/caller は public
+    const path = url.pathname.split(/\/(?:private|public)\//)[1] ?? "";
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     this.calls.push({ path, method: init?.method ?? "GET", query: url.searchParams, body });
 
@@ -86,6 +87,8 @@ export class FakeCloudKit {
         });
         return json(200, { records: out });
       }
+      case "users/caller":
+        return json(200, { userRecordName: "_fake_user" });
       case "records/modify": {
         const out = (body.operations as any[]).map((op) => this.applyOperation(op));
         return json(200, { records: out });

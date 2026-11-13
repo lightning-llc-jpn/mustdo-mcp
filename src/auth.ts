@@ -11,7 +11,7 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { join } from "node:path";
 
@@ -24,8 +24,14 @@ interface AuthFile {
   savedAt: string;
 }
 
+/// 読み込んだ auth.json。`savedAt` はトークンを最後に保存した時刻（＝トークンが作られた時刻の目安。読めなければ 0）。
+interface SavedToken {
+  token: string;
+  savedAt: number;
+}
+
 export class AuthStore {
-  private cached: string | null | undefined;
+  private cached: SavedToken | null | undefined;
   readonly path: string;
 
   constructor(
@@ -36,13 +42,30 @@ export class AuthStore {
   }
 
   getToken(): string | null {
+    return this.read()?.token ?? null;
+  }
+
+  /// auth.json を読み直して、いまのトークンを返す。ほかのプロセス（別の Claude のセッション・生かし続けるジョブ）が
+  /// 先に使って替えたトークンを拾う。
+  reload(): string | null {
+    this.invalidate();
+    return this.getToken();
+  }
+
+  /// いまのトークンを最後に保存した時刻（ミリ秒）。auth.json を読み直して答える。トークンが無ければ null。
+  savedAt(): number | null {
+    this.invalidate();
+    return this.read()?.savedAt ?? null;
+  }
+
+  private read(): SavedToken | null {
     if (this.cached !== undefined) return this.cached;
     try {
       const parsed = JSON.parse(readFileSync(this.path, "utf8")) as Partial<AuthFile>;
       // 環境が違うトークンは使えない（development と production は別のセッション）。
       this.cached =
         typeof parsed.ckWebAuthToken === "string" && (parsed.environment ?? this.environment) === this.environment
-          ? parsed.ckWebAuthToken
+          ? { token: parsed.ckWebAuthToken, savedAt: Date.parse(parsed.savedAt ?? "") || 0 }
           : null;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -53,12 +76,14 @@ export class AuthStore {
     return this.cached;
   }
 
-  saveToken(token: string): void {
+  saveToken(token: string, now: Date = new Date()): void {
     mkdirSync(this.homeDir, { recursive: true, mode: 0o700 });
-    const file: AuthFile = { ckWebAuthToken: token, environment: this.environment, savedAt: new Date().toISOString() };
-    writeFileSync(this.path, JSON.stringify(file, null, 2) + "\n", { mode: 0o600 });
-    chmodSync(this.path, 0o600);
-    this.cached = token;
+    const file: AuthFile = { ckWebAuthToken: token, environment: this.environment, savedAt: now.toISOString() };
+    // 書きかけをほかのプロセスに読ませない（別名で書いてから置き換える）。
+    const temporary = `${this.path}.${process.pid}.tmp`;
+    writeFileSync(temporary, JSON.stringify(file, null, 2) + "\n", { mode: 0o600 });
+    renameSync(temporary, this.path);
+    this.cached = { token, savedAt: now.getTime() };
     log("INFO", "auth.saved", { path: this.path, environment: this.environment });
   }
 

@@ -123,9 +123,31 @@ API Token は container 単位で、利用者が自分で作ることはでき�
 | `MUSTDO_LOG_LEVEL` | — | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR`（stderr に JSON 行） |
 
 `auth.json` は環境ごとに別です。`MUSTDO_CK_ENV` を変えたら `sign_in` をやり直してください。
-CloudKit は応答ごとに新しいトークンをヘッダー `x-apple-cloudkit-web-auth-token` で返すので、サーバーが `auth.json` に保存し直します。
-Apple の画面では **「サインインしたままにする」** を選んでください。選ばないとセッションは 30 分で切れます（選ぶと 2 週間）。
-切れたら（CloudKit が HTTP 421）ツールが `NOT_SIGNED_IN` を返すので、`sign_in` をもう一度。
+サインインが切れたら（CloudKit が HTTP 421）ツールが `NOT_SIGNED_IN` を返すので、`sign_in` をもう一度。
+
+#### サインインを保つ
+
+`ckWebAuthToken` は **1 往復ごとの使い捨て**です。CloudKit は応答のたびに次のトークンをヘッダー
+`x-apple-cloudkit-web-auth-token` で返し、サーバーがそれを `auth.json` に保存し直します。
+トークンの寿命は**作られてから 30 分**、Apple の画面で **「サインインしたままにする」** を選ぶと **2 週間**です（必ず選んでください）。
+次のトークンは CloudKit を呼んだときにしか返らないので、使わずにいるとそのまま切れます。
+
+- **MCP サーバーが動いている間**は自動で更新します。5 分おきに `auth.json` を見て、トークンが 15 分たっていたら
+  `users/caller`（CloudKit の利用者 ID を返すだけ。TODO は読みません）を呼びます。
+- **MCP クライアントを閉じている間**は誰も更新しません。その間も保つには、`mustdo-keepalive`（`dist/keepalive-cli.js`）を
+  5 分おきに動かしてください。同じ確認を 1 回だけして終わります。終了コードは `0` = 更新した・まだ新しい、
+  `3` = サインインが切れている（`sign_in` が要る）、`1` = 失敗。結果は stderr に JSON で 1 行出ます。
+
+  ```cron
+  */5 * * * * /usr/local/bin/node /path/to/mustdo-mcp/dist/keepalive-cli.js 2>>"$HOME/.mustdo/keepalive.log"
+  ```
+
+  cron には `claude mcp add` の `-e` で渡した環境変数が届かないので、`apiToken` と `environment` は
+  `~/.mustdo/config.json` に書いてください。macOS なら launchd のエージェント（`StartInterval` を `300`、コマンドは同じ）でも構いません。
+  マシンが起きていることが前提です。トークンの残り寿命より長くスリープすると、サインインは切れます。
+
+1 つの `auth.json` を複数のプロセス（Claude のセッション 2 つ、サーバーと `mustdo-keepalive`）で共有しても構いません。
+先に呼んだ方がトークンを替え、後の方は 421 を受けて `auth.json` を読み直し、新しいトークンで 1 回だけやり直します。
 
 ## ツール
 
@@ -253,10 +275,12 @@ src/
   tools.ts      ツール定義（zod）。stdio と中継の共通ソース
   core.ts       共有コアの入口（auth / config / stdio は含まない）
   service.ts    ツールの中身: 絞り込み・upsert・衝突再試行
-  cloudkit.ts   CloudKit Web Services の薄いクライアント（query / lookup / modify、421）
+  cloudkit.ts   CloudKit Web Services の薄いクライアント（query / lookup / modify、トークンの差し替え、421）
   records.ts    レコード ⇄ モデル変換
   dates.ts      Intl だけの時間帯つき日付計算
   auth.ts       auth.json とサインインの待ち受け
+  keepalive.ts  使っていない間もサインインのトークンを更新する（ローカル専用）
+  keepalive-cli.ts  `mustdo-keepalive` のエントリ（1 回だけ確認。cron / launchd 用）
   config.ts     env / ~/.mustdo/config.json
   model.ts      enum・allowlist・RepeatRule 型（Swift アプリと同じ値）
   errors.ts     ToolError / NotSignedInError
@@ -264,7 +288,7 @@ src/
 test/           vitest
 ```
 
-`dist/core.js`（package の `exports`）が中継の使う **共有コア** です。`auth.ts`・`config.ts`・`index.ts`・`server.ts` 以外の全部。
+`dist/core.js`（package の `exports`）が中継の使う **共有コア** です。`auth.ts`・`config.ts`・`index.ts`・`server.ts`・`keepalive.ts`・`keepalive-cli.ts` 以外の全部。
 ここにローカルのファイルやブラウザに触るものを入れないでください。
 
 ### 進め方: Issue から始める
