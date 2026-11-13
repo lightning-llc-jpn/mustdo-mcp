@@ -6,6 +6,7 @@ import { z } from "zod";
 import { AuthStore, pendingSignIn, signIn } from "./auth.js";
 import { CloudKitClient } from "./cloudkit.js";
 import type { Config } from "./config.js";
+import { startKeepAlive } from "./keepalive.js";
 import { MustDoService } from "./service.js";
 import { makeToolRunner, registerTodoTools } from "./tools.js";
 
@@ -16,6 +17,8 @@ export interface ServerDeps {
   fetch?: typeof fetch;
   openBrowser?: (url: string) => void;
   now?: () => Date;
+  /// true なら、プロセスが動いている間、使っていなくてもサインインを生かし続ける（keepalive.ts）。
+  keepAlive?: boolean;
 }
 
 export function createServer(deps: ServerDeps): McpServer {
@@ -28,9 +31,11 @@ export function createServer(deps: ServerDeps): McpServer {
     zoneName: config.zoneName,
     getWebAuthToken: () => auth.getToken(),
     onWebAuthTokenRotated: (token) => auth.saveToken(token),
+    reloadWebAuthToken: () => auth.reload(),
     ...(deps.fetch ? { fetch: deps.fetch } : {}),
   });
   const service = new MustDoService({ client, ...(deps.now ? { now: deps.now } : {}) });
+  if (deps.keepAlive) startKeepAlive(client, auth);
 
   const server = new McpServer(
     { name: "mustdo", version: "0.1.0" },

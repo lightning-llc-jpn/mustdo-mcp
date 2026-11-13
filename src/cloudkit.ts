@@ -70,6 +70,10 @@ export interface CloudKitClientOptions {
   /// `getWebAuthToken` でそれを返す。最初のトークンを使い続けると発行から 30 分（「サインインしたままにする」なら
   /// 2 週間）で 421 になる。
   onWebAuthTokenRotated?: (token: string) => void;
+  /// 421 を受けたときに呼ぶ。保存先を読み直して、いまのトークンを返す（無ければ null）。送ったものと違えば、
+  /// ほかのプロセスが先に使って替えた（トークンは 1 往復ごとの使い捨て）ということなので、それで 1 回だけやり直す。
+  /// 渡さなければやり直さない（中継は自前の仕組みで見分ける）。
+  reloadWebAuthToken?: () => string | null;
 }
 
 /// 新しい ckWebAuthToken を運ぶ応答ヘッダー。Apple の CloudKit JS と同じく前者を先に見る。
@@ -82,15 +86,31 @@ interface CKErrorBody {
   redirectURL?: string;
 }
 
+/// ckWebAuthToken が無い／失効／ほかの往復で使われたあと。
+function isAuthError(status: number, body: CKErrorBody | null): boolean {
+  return status === 421 || body?.serverErrorCode === "AUTHENTICATION_REQUIRED" || body?.serverErrorCode === "AUTHENTICATION_FAILED";
+}
+
 export class CloudKitClient {
   private readonly fetchImpl: typeof fetch;
   readonly zoneID: ZoneID;
   readonly baseURL: string;
+  /// `users/caller` は public database にしか無い（private に投げると BAD_REQUEST）。
+  private readonly publicBaseURL: string;
 
   constructor(private readonly options: CloudKitClientOptions) {
     this.fetchImpl = options.fetch ?? fetch;
     this.zoneID = { zoneName: options.zoneName, ownerRecordName: DEFAULT_OWNER };
-    this.baseURL = `${CLOUDKIT_BASE}/${options.container}/${options.environment}/private`;
+    const environmentURL = `${CLOUDKIT_BASE}/${options.container}/${options.environment}`;
+    this.baseURL = `${environmentURL}/private`;
+    this.publicBaseURL = `${environmentURL}/public`;
+  }
+
+  /// サインインを生かし続けるための 1 往復。`users/caller`（利用者 ID を返すだけ。TODO は読まない）を呼び、
+  /// 返ってきた新しい ckWebAuthToken を `onWebAuthTokenRotated` に渡す。トークンの寿命は作られてから 30 分
+  /// （「サインインしたままにする」で 2 週間）で、新しいものは呼んだときにしか返らない。
+  async keepAlive(): Promise<void> {
+    await this.send("users/caller", { method: "GET" }, this.publicBaseURL);
   }
 
   /// zone 内の `recordType` を全件。`continuationMarker` を辿る。
@@ -160,30 +180,40 @@ export class CloudKitClient {
     throw this.httpError(response.status, body);
   }
 
-  private buildURL(path: string, webAuthToken: string | null): string {
+  private buildURL(path: string, webAuthToken: string | null, baseURL = this.baseURL): string {
     const params = new URLSearchParams({ ckAPIToken: this.options.apiToken });
     if (webAuthToken) params.set("ckWebAuthToken", webAuthToken);
-    return `${this.baseURL}/${path}?${params.toString()}`;
+    return `${baseURL}/${path}?${params.toString()}`;
   }
 
-  private async post(path: string, body: unknown): Promise<unknown> {
+  private post(path: string, body: unknown): Promise<unknown> {
+    return this.send(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  }
+
+  /// サインイン済みの 1 往復。新しいトークンを受け取り、421 は（保存先のトークンが替わっていれば）1 回だけやり直す。
+  private async send(path: string, init: RequestInit, baseURL = this.baseURL): Promise<unknown> {
     if (!this.options.apiToken) {
       throw new ToolError("NOT_CONFIGURED", "MUSTDO_CK_API_TOKEN（または ~/.mustdo/config.json の apiToken）が未設定です。README を見て CloudKit Dashboard で API Token を作ってください。");
     }
-    const sentToken = this.options.getWebAuthToken();
+    let sentToken = this.options.getWebAuthToken();
     if (!sentToken) throw new NotSignedInError();
-    const url = this.buildURL(path, sentToken);
-    const started = Date.now();
-    const response = await this.fetchImpl(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    this.takeRotatedToken(response, sentToken);
-    const json = await safeJSON(response);
-    log("DEBUG", "cloudkit.request", { path, status: response.status, ms: Date.now() - started });
-    if (response.ok) return json;
-    throw this.httpError(response.status, json as CKErrorBody | null);
+    for (let retried = false; ; retried = true) {
+      const started = Date.now();
+      const response = await this.fetchImpl(this.buildURL(path, sentToken, baseURL), init);
+      this.takeRotatedToken(response, sentToken);
+      const json = (await safeJSON(response)) as CKErrorBody | null;
+      log("DEBUG", "cloudkit.request", { path, status: response.status, ms: Date.now() - started });
+      if (response.ok) return json;
+      if (!retried && isAuthError(response.status, json)) {
+        const reloaded = this.options.reloadWebAuthToken?.() ?? null;
+        if (reloaded && reloaded !== sentToken) {
+          log("INFO", "cloudkit.retryWithReloadedToken", { path });
+          sentToken = reloaded;
+          continue;
+        }
+      }
+      throw this.httpError(response.status, json);
+    }
   }
 
   private takeRotatedToken(response: Response, sentToken: string): void {
@@ -200,7 +230,7 @@ export class CloudKitClient {
   }
 
   private httpError(status: number, body: CKErrorBody | null): ToolError {
-    if (status === 421 || body?.serverErrorCode === "AUTHENTICATION_REQUIRED" || body?.serverErrorCode === "AUTHENTICATION_FAILED") {
+    if (isAuthError(status, body)) {
       log("WARN", "cloudkit.notSignedIn", { status, code: body?.serverErrorCode });
       return new NotSignedInError(body?.redirectURL);
     }

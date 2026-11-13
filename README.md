@@ -127,9 +127,31 @@ Environment variables win over `~/.mustdo/config.json`.
 | `MUSTDO_LOG_LEVEL` | — | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR` (JSON lines on stderr) |
 
 `auth.json` is per environment; switching `MUSTDO_CK_ENV` requires another `sign_in`.
-CloudKit returns a fresh token in the `x-apple-cloudkit-web-auth-token` response header on each request; the server saves it back to `auth.json`.
-Choose **Keep me signed in** on Apple's page: without it the session expires after 30 minutes (2 weeks with it).
-When it expires (CloudKit returns HTTP 421), tools return `NOT_SIGNED_IN` and you run `sign_in` again.
+When the sign-in has ended (CloudKit returns HTTP 421), tools return `NOT_SIGNED_IN` and you run `sign_in` again.
+
+#### Keeping the sign-in alive
+
+A `ckWebAuthToken` is **single-use**: every CloudKit round trip returns a replacement in the
+`x-apple-cloudkit-web-auth-token` response header, and the server saves it back to `auth.json`.
+A token expires **30 minutes after it was created** — **2 weeks** if you choose **Keep me signed in** on Apple's
+page, so do choose it. A replacement only arrives when CloudKit is called, so an idle sign-in simply runs out.
+
+- **While the MCP server is running**, it refreshes the token by itself: every 5 minutes it checks `auth.json`, and
+  if the token is 15 minutes old it calls `users/caller` (returns your CloudKit user ID only; no To-Do is read).
+- **While no MCP client is running**, nothing refreshes it. To keep the sign-in across those gaps, run
+  `mustdo-keepalive` (`dist/keepalive-cli.js`) every 5 minutes. It does the same check once and exits:
+  `0` = refreshed or still fresh, `3` = signed out (run `sign_in`), `1` = failed. One JSON line goes to stderr.
+
+  ```cron
+  */5 * * * * /usr/local/bin/node /path/to/mustdo-mcp/dist/keepalive-cli.js 2>>"$HOME/.mustdo/keepalive.log"
+  ```
+
+  cron does not see the `-e` variables you gave to `claude mcp add`, so put `apiToken` and `environment` in
+  `~/.mustdo/config.json`. On macOS a launchd agent with `StartInterval` `300` and the same command works as well.
+  The machine has to be awake: a sleep longer than the token's remaining lifetime still ends the sign-in.
+
+Several processes may share one `auth.json` (two Claude sessions, the server and `mustdo-keepalive`). Whoever calls
+first rotates the token; the other gets a 421, re-reads `auth.json`, and retries once with the new token.
 
 ## Tools
 
@@ -262,10 +284,12 @@ src/
   tools.ts      tool definitions (zod schemas) shared by stdio and the relay
   core.ts       public entry for the shared core (no auth/config/stdio)
   service.ts    tool logic: filtering, upserts, conflict retry
-  cloudkit.ts   thin CloudKit Web Services client (query / lookup / modify, 421 handling)
+  cloudkit.ts   thin CloudKit Web Services client (query / lookup / modify, token rotation, 421 handling)
   records.ts    CloudKit record <-> model conversion
   dates.ts      time-zone-aware date math using Intl only
   auth.ts       auth.json and the sign-in callback listener
+  keepalive.ts  refreshes the sign-in token while idle (local only)
+  keepalive-cli.ts  entry point of `mustdo-keepalive` (one check, for cron / launchd)
   config.ts     env / ~/.mustdo/config.json
   model.ts      enums, allowlists, RepeatRule types (mirrors the Swift app)
   errors.ts     ToolError / NotSignedInError
@@ -274,7 +298,7 @@ test/           vitest
 ```
 
 `dist/core.js` (package `exports`) is the **shared core** consumed by the hosted relay: everything
-except `auth.ts`, `config.ts`, `index.ts` and `server.ts`. Keep it free of anything that touches the
+except `auth.ts`, `config.ts`, `index.ts`, `server.ts`, `keepalive.ts` and `keepalive-cli.ts`. Keep it free of anything that touches the
 local file system or a browser.
 
 ### Workflow: start from an issue
